@@ -5,8 +5,8 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import time
+import urllib.parse
 
-# Configuración de Selenium para la Nube
 def get_driver():
     options = Options()
     options.add_argument("--headless")
@@ -14,65 +14,56 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-st.set_page_config(page_title="Cotizador de Libros Pro", layout="centered")
-st.title("📚 Buscador de Negociación Independiente")
-st.markdown("Extrae precios en tiempo real de **Buscalibre** y compara con mercado.")
+st.set_page_config(page_title="Cotizador Pro", page_icon="📚")
+st.title("🚀 Buscador de Libros & Negociación")
 
-busqueda = st.text_input("Ingresa el ISBN o Título del libro:", placeholder="Ej: 9788419615551 o Alas de Ónix")
+busqueda = st.text_input("ISBN o Título del libro:", placeholder="Ej: Alas de Ónix")
 
-if st.button("🔍 Consultar y Calcular"):
-    if busqueda:
-        with st.spinner('Analizando Buscalibre (Solo Libros Nuevos)...'):
-            driver = get_driver()
-            # Búsqueda en Buscalibre
-            driver.get(f"https://www.buscalibre.com.co/libros/search?q={busqueda}")
-            time.sleep(3)
-            soup = BeautifulSoup(driver.page_source, 'html.parser')
-            driver.quit()
+if st.button("🔍 Calcular Negociación"):
+    with st.spinner('Escaneando mercado...'):
+        driver = get_driver()
+        driver.get(f"https://www.buscalibre.com.co/libros/search?q={busqueda}")
+        time.sleep(3)
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        driver.quit()
 
-            productos = soup.find_all('div', class_='producto')
-            precios_nuevos = []
+        precios_nuevos = []
+        for p in soup.find_all('div', class_='producto'):
+            condicion = p.find('span', class_='condicion')
+            if condicion and "nuevo" in condicion.text.lower():
+                precio_texto = p.find('p', class_='precio-ahora').text
+                precios_nuevos.append(int(''.join(filter(str.isdigit, precio_texto))))
 
-            for p in productos:
-                # FILTRO CRÍTICO: Solo "Nuevo"
-                estado = p.find('span', class_='condicion')
-                if estado and "nuevo" in estado.text.lower():
-                    precio_texto = p.find('p', class_='precio-ahora').text
-                    valor = int(''.join(filter(str.isdigit, precio_texto)))
-                    precios_nuevos.append(valor)
+        if precios_nuevos:
+            pb = min(precios_nuevos)
+            pn = pb + 12000 # Precio normal estimado
+            pv = pn - 500 if pn > pb else pb 
+            
+            p_compra = pv * 0.90
+            utilidad = pv - p_compra
+            p_envio = pv + 7900
 
-            if precios_nuevos:
-                precio_buscalibre = min(precios_nuevos)
-                
-                # --- SONDEO DE MERCADO (Simulación de Tornamesa/Casa del Libro) ---
-                # Aquí el sistema asume un margen de mercado basado en el ISBN
-                precio_normal_mercado = precio_buscalibre + 12000 
+            # --- RECUADROS DE RESULTADOS ---
+            st.markdown("---")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("PRECIO COMPRA (-10%)", f"${p_compra:,.0f}")
+                st.metric("PRECIO CON ENVÍO", f"${p_envio:,.0f}")
+            with c2:
+                st.metric("UTILIDAD", f"${utilidad:,.0f}", delta=f"{(utilidad/pv)*100:.1f}%")
+                st.info(f"**Precio Venta:** ${pv:,.0f}")
 
-                # LÓGICA DE PRECIO DE VENTA OPTIMIZADO
-                # Si el mercado es más caro, subimos el precio para ganar más margen
-                if precio_normal_mercado > precio_buscalibre:
-                    precio_venta = precio_normal_mercado - 500 # Un poco menos que el normal
-                else:
-                    precio_venta = precio_buscalibre
-
-                # CÁLCULOS SOLICITADOS
-                precio_compra = precio_venta * 0.90
-                utilidad = precio_venta - precio_compra
-                precio_con_envio = precio_venta + 7900
-
-                # --- INTERFAZ DE RESULTADOS ---
-                st.markdown("---")
-                st.subheader(f"Resultado para: {busqueda}")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.info(f"**Precio de Venta Sugerido:**\n\n$ {precio_venta:,.0f}")
-                    st.metric("Precio con Envío", f"$ {precio_con_envio:,.0f}")
-                
-                with col2:
-                    st.error(f"**Precio de Compra (Base):**\n\n$ {precio_compra:,.0f}")
-                    st.success(f"**Utilidad estimada:**\n\n$ {utilidad:,.0f}")
-
-                st.warning(f"💡 El precio normal en mercado es de ${precio_normal_mercado:,.0f}. Tu utilidad es del {((utilidad/precio_venta)*100):.1f}%.")
-            else:
-                st.error("No se encontraron ejemplares NUEVOS. Por favor intenta con el ISBN exacto.")
+            # --- BOTÓN DE WHATSAPP ---
+            mensaje = f"Hola, te comparto la cotización:\n\n📖 Libro: {busqueda}\n💰 Precio: ${pv:,.0f}\n🚚 Envío: $7,900\n✅ Total: ${p_envio:,.0f}"
+            msg_encoded = urllib.parse.quote(mensaje)
+            whatsapp_url = f"https://wa.me/?text={msg_encoded}"
+            
+            st.markdown(f'''
+                <a href="{whatsapp_url}" target="_blank">
+                    <button style="width:100%; background-color:#25D366; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer; font-weight:bold;">
+                        📱 Enviar Cotización por WhatsApp
+                    </button>
+                </a>
+            ''', unsafe_allow_html=True)
+        else:
+            st.error("No se encontraron libros NUEVOS.")
